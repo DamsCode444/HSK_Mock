@@ -1,0 +1,54 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+backend/.venv/
+
+# Node and Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+/backend/package-lock.json
+
+# Databases and private exports
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.sql.gz
+
+# Generated and copyrighted/private content
+storage/*
+!storage/.gitkeep
+uploads/*
+!uploads/.gitkeep
+HSK_Materials/
+HSK_mock_test_bundles_exam_answers_audio_file/
+.cloud-transfer/
+
+# Logs and local editor files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
