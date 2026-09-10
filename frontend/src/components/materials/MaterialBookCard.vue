@@ -25,6 +25,10 @@ const readerTarget = computed(() => ({
           v-if="book.coverUrl"
           :src="book.coverUrl"
           :alt="`${book.title} cover`"
+          loading="lazy"
+          decoding="async"
+          width="300"
+          height="400"
           class="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
         >
         <div class="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />

@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import CurrentUser, DbSession
 from app.api.serializers import attempt_out, media_url, question_out, test_detail, test_summary
+from app.core.audit import audit_event
 from app.core.time import utcnow
 from app.db.locking import lock_exam_write
 from app.models import Attempt, HskTest, Question, User
@@ -91,9 +92,21 @@ def start_test(test_id: int, db: DbSession, current_user: CurrentUser) -> Attemp
         .with_for_update()
     )
     if existing is not None and now < existing.deadline:
+        audit_event(
+            "attempt_resumed",
+            user_id=current_user.id,
+            attempt_id=existing.id,
+            test_id=test.id,
+        )
         return attempt_out(existing, now=now)
     if existing is not None:
         grade_attempt(existing, now=now)
+        audit_event(
+            "attempt_expired",
+            user_id=current_user.id,
+            attempt_id=existing.id,
+            test_id=test.id,
+        )
         db.flush()
 
     attempt = Attempt(
@@ -108,4 +121,11 @@ def start_test(test_id: int, db: DbSession, current_user: CurrentUser) -> Attemp
     db.add(attempt)
     db.commit()
     db.refresh(attempt)
+    audit_event(
+        "attempt_started",
+        user_id=current_user.id,
+        attempt_id=attempt.id,
+        test_id=test.id,
+        deadline=attempt.deadline,
+    )
     return attempt_out(attempt, now=now)

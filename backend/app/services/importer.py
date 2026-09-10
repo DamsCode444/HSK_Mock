@@ -16,6 +16,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
+from app.core.uploads import (
+    scan_upload_for_malware,
+    validate_uploaded_media,
+    validate_zip_signature,
+)
 from app.models import Answer, HskTest, ImportLog, Option, Question
 
 
@@ -606,26 +611,70 @@ def safely_extract_bundle_zip(zip_path: Path, destination: Path) -> Path:
     destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     total_size = 0
+    total_compressed = 0
+    validate_zip_signature(zip_path)
+    scan_upload_for_malware(zip_path)
     with zipfile.ZipFile(zip_path) as archive:
-        for info in archive.infolist():
-            posix = PurePosixPath(info.filename.replace("\\", "/"))
-            if posix.is_absolute() or ".." in posix.parts:
+        entries = archive.infolist()
+        if len(entries) > settings.upload_zip_max_files:
+            raise ValueError("ZIP contains too many entries")
+        seen_paths: set[str] = set()
+        for info in entries:
+            normalized = info.filename.replace("\\", "/")
+            normalized_path = normalized.rstrip("/")
+            posix = PurePosixPath(normalized_path)
+            if (
+                not normalized_path
+                or len(normalized) > 512
+                or len(posix.parts) > 12
+                or posix.is_absolute()
+                or any(part in {"", ".", ".."} for part in normalized_path.split("/"))
+                or any(":" in part for part in posix.parts)
+                or any(ord(character) < 32 for character in normalized)
+            ):
                 raise ValueError("ZIP contains an unsafe path")
+            collision_key = posix.as_posix().casefold()
+            if collision_key in seen_paths:
+                raise ValueError("ZIP contains duplicate or colliding paths")
+            seen_paths.add(collision_key)
             if info.is_dir():
                 continue
+            if info.flag_bits & 0x1:
+                raise ValueError("Encrypted ZIP entries are not supported")
             if stat.S_ISLNK(info.external_attr >> 16):
                 raise ValueError("ZIP archives may not contain symbolic links")
             if Path(posix.name).suffix.lower() not in ALLOWED_UPLOAD_SUFFIXES:
                 raise ValueError(f"Unsupported file in bundle: {posix.name}")
             total_size += info.file_size
+            total_compressed += info.compress_size
             if total_size > settings.max_upload_mb * 1024 * 1024:
                 raise ValueError("Extracted upload exceeds the configured size limit")
+            ratio = info.file_size / max(info.compress_size, 1)
+            if ratio > settings.upload_zip_max_ratio:
+                raise ValueError("ZIP entry exceeds the configured compression ratio")
             target = (destination / Path(*posix.parts)).resolve()
             if destination not in target.parents:
                 raise ValueError("ZIP contains an unsafe path")
             target.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(info) as source, target.open("wb") as output:
-                shutil.copyfileobj(source, output)
+                copied = 0
+                while chunk := source.read(1024 * 1024):
+                    copied += len(chunk)
+                    extracted_so_far = total_size - info.file_size + copied
+                    if (
+                        copied > info.file_size
+                        or extracted_so_far > settings.max_upload_mb * 1024 * 1024
+                    ):
+                        raise ValueError("Extracted upload exceeds the configured size limit")
+                    output.write(chunk)
+            if copied != info.file_size:
+                raise ValueError("ZIP entry size does not match its directory record")
+            validate_uploaded_media(target)
+        if (
+            total_size
+            and total_size / max(total_compressed, 1) > settings.upload_zip_max_ratio
+        ):
+            raise ValueError("ZIP exceeds the configured compression ratio")
     return destination
 
 

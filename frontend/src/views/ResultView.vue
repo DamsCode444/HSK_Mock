@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Check, Close, Clock, Medal, Warning } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import EmptyState from '../components/EmptyState.vue'
 import { http, errorMessage } from '../services/http'
 import { formatLevel, normalizeResult } from '../services/normalizers'
@@ -79,9 +79,9 @@ onMounted(async () => {
             <div class="relative mx-auto h-48 w-48 shrink-0 sm:h-56 sm:w-56">
               <svg class="h-full w-full -rotate-90" viewBox="0 0 120 120" role="img" :aria-label="`${scorePercent}% of maximum score`">
                 <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="7" />
-                <circle cx="60" cy="60" r="52" fill="none" :stroke="result.passed ? '#5ca48f' : '#c99643'" stroke-linecap="round" stroke-width="7" :stroke-dasharray="`${scorePercent * 3.267} 326.7`" />
+                <circle class="score-ring" cx="60" cy="60" r="52" pathLength="100" fill="none" :stroke="result.passed ? '#5ca48f' : '#c99643'" stroke-linecap="round" stroke-width="7" :style="{ '--score-value': scorePercent }" />
               </svg>
-              <div class="absolute inset-0 grid place-items-center text-center"><span><b class="block font-serif text-5xl">{{ result.score }}</b><small class="font-bold text-white/40">out of {{ result.maxScore }}</small><span class="mx-auto mt-2 block w-fit rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest" :class="result.passed ? 'bg-jade text-white' : 'bg-gold text-ink'">{{ result.passed ? 'Pass' : 'Not yet' }}</span></span></div>
+              <div class="score-reveal absolute inset-0 grid place-items-center text-center"><span><b class="block font-serif text-5xl">{{ result.score }}</b><small class="font-bold text-white/40">out of {{ result.maxScore }}</small><span class="mx-auto mt-2 block w-fit rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest" :class="result.passed ? 'bg-jade text-white' : 'bg-gold text-ink'">{{ result.passed ? 'Pass' : 'Not yet' }}</span></span></div>
             </div>
           </div>
         </section>
@@ -91,7 +91,7 @@ onMounted(async () => {
           <div v-if="result.sections.length" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <article v-for="section in result.sections" :key="section.name" class="surface p-5">
               <div class="flex items-start justify-between"><span class="text-xs font-black uppercase tracking-[0.15em] text-black/40">{{ section.name }}</span><b class="font-serif text-3xl">{{ section.score }}<small class="text-sm text-black/35">/{{ section.maxScore }}</small></b></div>
-              <div class="mt-5 h-2 overflow-hidden rounded-full bg-black/[0.07]"><div class="h-full rounded-full bg-jade" :style="{ width: `${Math.min(100, section.maxScore ? (section.score / section.maxScore) * 100 : 0)}%` }" /></div>
+              <div class="mt-5 h-2 overflow-hidden rounded-full bg-black/[0.07]"><div class="section-score-bar h-full rounded-full bg-jade" :style="{ '--section-score': `${Math.min(100, section.maxScore ? (section.score / section.maxScore) * 100 : 0)}%` }" /></div>
               <p v-if="section.correct != null" class="mt-3 text-xs font-semibold text-black/40">{{ section.correct }} correct out of {{ section.total }}</p>
             </article>
           </div>
@@ -113,7 +113,7 @@ onMounted(async () => {
               </div>
               <div class="p-5 sm:p-6">
                 <p v-if="question.text" class="whitespace-pre-wrap font-serif text-lg font-semibold leading-8">{{ question.text }}</p>
-                <img v-if="question.imageUrl" :src="question.imageUrl" :alt="`Question ${question.number}`" class="mt-4 max-h-96 rounded-xl border border-black/10 bg-white object-contain" />
+                <img v-if="question.imageUrl" :src="question.imageUrl" :alt="`Question ${question.number}`" loading="lazy" decoding="async" class="mt-4 max-h-96 rounded-xl border border-black/10 bg-white object-contain" />
                 <div class="mt-5 grid gap-3 sm:grid-cols-2">
                   <div class="rounded-xl border p-4" :class="question.isCorrect === null ? 'border-gold/30 bg-gold/[0.06]' : question.isCorrect ? 'border-jade/20 bg-jade/[0.045]' : 'border-cinnabar/20 bg-cinnabar/[0.04]'"><span class="text-[10px] font-black uppercase tracking-wider text-black/40">Your answer</span><p class="mt-2 whitespace-pre-wrap font-semibold" :class="question.userAnswer ? '' : 'italic text-black/35'">{{ displayAnswer(question.userAnswer) }}</p></div>
                   <div class="rounded-xl border p-4" :class="question.isCorrect === null ? 'border-gold/30 bg-gold/[0.06]' : 'border-jade/20 bg-jade/[0.045]'"><span class="text-[10px] font-black uppercase tracking-wider" :class="question.isCorrect === null ? 'text-[#956817]' : 'text-jade'">{{ question.isCorrect === null ? 'Grading status' : 'Correct answer' }}</span><p class="mt-2 whitespace-pre-wrap font-semibold">{{ question.isCorrect === null ? 'Not graded automatically in Phase 1' : displayAnswer(question.correctAnswer) }}</p></div>
@@ -131,3 +131,22 @@ onMounted(async () => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.score-ring {
+  stroke-dasharray: var(--score-value) 100;
+  animation: reveal-ring 1.15s cubic-bezier(.2,.8,.2,1) both;
+}
+.score-reveal { animation: reveal-score .55s .45s cubic-bezier(.2,.9,.25,1.2) both; }
+.section-score-bar {
+  width: var(--section-score);
+  transform-origin: left;
+  animation: reveal-section .8s .2s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes reveal-ring { from { stroke-dasharray: 0 100; } }
+@keyframes reveal-score { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: scale(1); } }
+@keyframes reveal-section { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .score-ring, .score-reveal, .section-score-bar { animation: none; }
+}
+</style>

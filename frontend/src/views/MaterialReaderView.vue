@@ -10,7 +10,8 @@ import {
   Reading,
   Search,
 } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import EmptyState from '../components/EmptyState.vue'
 import StudyAudioPlayer from '../components/materials/StudyAudioPlayer.vue'
 import { errorMessage } from '../services/http'

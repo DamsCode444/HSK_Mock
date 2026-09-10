@@ -9,7 +9,7 @@ import {
   Headset,
   Reading,
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import EmptyState from '../components/EmptyState.vue'
 import { errorMessage } from '../services/http'
 import { formatBytes, formatDuration, materialUrl, openMaterialUrl, requestMaterialAsset } from '../services/materials'
@@ -80,7 +80,7 @@ async function load() {
   loading.value = true
   failed.value = false
   try {
-    await materials.loadCatalog(true)
+    await materials.loadCatalog()
     if (!materials.editions.some((edition) => edition.id === selectedEditionId.value)) {
       selectedEditionId.value = materials.editions[0]?.id || '2.0'
     }
@@ -200,7 +200,7 @@ onMounted(load)
               <template v-if="level.available">
                 <RouterLink :to="{ name: 'material-level', params: { slug: level.slug } }" class="block">
                   <div class="relative h-64 overflow-hidden bg-[#e8e0d1]">
-                    <img :src="level.coverUrl" :alt="`${selectedEdition.label} Level ${level.levelLabel} cover`" loading="lazy" class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]">
+                    <img :src="level.coverUrl" :alt="`${selectedEdition.label} Level ${level.levelLabel} cover`" loading="lazy" decoding="async" width="420" height="560" class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]">
                     <div class="absolute inset-0 bg-gradient-to-t from-[#151e1b]/75 via-transparent to-transparent" />
                     <div class="absolute bottom-0 left-0 right-0 flex items-end justify-between p-5 text-white">
                       <div>

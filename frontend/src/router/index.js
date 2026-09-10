@@ -78,6 +78,16 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
+
+  // Public pages should paint immediately even if Clerk is slow or blocked.
+  // The reactive header updates as soon as the background session bootstrap
+  // completes; protected and guest-only routes still wait for a definitive
+  // authentication result before navigation.
+  if (!to.meta.requiresAuth && !to.meta.guestOnly) {
+    auth.bootstrap().catch(() => undefined)
+    return true
+  }
+
   try {
     await auth.bootstrap()
   } catch {

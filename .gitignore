@@ -52,3 +52,8 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Local browser and performance QA artifacts
+/.qa-chrome-*/
+/lighthouse-local*.json
+/ui-*.png

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.audit import audit_event
 from app.core.config import settings
 from app.models import User
 
@@ -142,6 +143,7 @@ def resolve_local_user(db: Session, clerk_user_id: str) -> User:
             )
         email_owner.clerk_user_id = clerk_user_id
         user = email_owner
+        audit_action = "clerk_account_linked"
     else:
         user = User(
             username=_available_username(db, identity),
@@ -152,10 +154,12 @@ def resolve_local_user(db: Session, clerk_user_id: str) -> User:
             is_active=True,
         )
         db.add(user)
+        audit_action = "clerk_account_created"
 
     try:
         db.commit()
         db.refresh(user)
+        audit_event(audit_action, user_id=user.id, role=user.role)
         return user
     except IntegrityError as exc:
         db.rollback()

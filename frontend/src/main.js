@@ -1,8 +1,9 @@
 import { clerkPlugin } from '@clerk/vue'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus, { ElMessage } from 'element-plus'
-import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/base.css'
+import 'element-plus/theme-chalk/el-message.css'
+import 'element-plus/theme-chalk/el-message-box.css'
 import './styles/main.css'
 
 import App from './App.vue'
@@ -18,7 +19,6 @@ const app = createApp(App)
 const pinia = createPinia()
 
 app.use(pinia)
-app.use(ElementPlus)
 app.use(clerkPlugin, {
   publishableKey: PUBLISHABLE_KEY,
   signInUrl: '/login',
@@ -27,10 +27,11 @@ app.use(clerkPlugin, {
   signUpFallbackRedirectUrl: '/dashboard',
 })
 
-window.addEventListener('hsk:unauthorized', () => {
+window.addEventListener('hsk:unauthorized', async () => {
   const auth = useAuthStore(pinia)
   const currentRoute = router.currentRoute.value
   auth.clearSession()
+  const { ElMessage } = await import('element-plus/es/components/message/index')
   ElMessage.error('The API could not verify your Clerk session. Please try again or sign out and back in.')
   if (currentRoute.meta.requiresAuth) {
     router.replace({ name: 'home', query: { auth_error: 'session' } })

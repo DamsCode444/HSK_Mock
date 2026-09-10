@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { VideoPlay, VideoPause, Headset, Mute, Microphone } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import { http, errorMessage } from '../services/http'
 
 const props = defineProps({

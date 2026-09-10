@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Document, Headset, Reading } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import EmptyState from '../components/EmptyState.vue'
 import MaterialBookCard from '../components/materials/MaterialBookCard.vue'
 import { errorMessage } from '../services/http'
@@ -59,7 +60,7 @@ async function load() {
   activeKind.value = 'all'
   activeVolume.value = 'all'
   try {
-    const result = await materials.loadCollection(String(route.params.slug), true)
+    const result = await materials.loadCollection(String(route.params.slug))
     if (request !== loadRequest) return
     collection.value = result
   } catch (error) {
@@ -133,7 +134,7 @@ onBeforeUnmount(() => { ++loadRequest })
         <div class="soft-grid absolute inset-0 opacity-60" />
         <div class="page-shell relative grid gap-8 py-10 md:grid-cols-[220px_1fr] md:items-center md:py-14">
           <div class="mx-auto w-44 overflow-hidden rounded-2xl border border-black/10 bg-white shadow-xl shadow-black/10 md:mx-0 md:w-[210px]">
-            <img :src="collection.coverUrl" :alt="`${collection.title} book cover`" class="aspect-[3/4] w-full object-cover">
+            <img :src="collection.coverUrl" :alt="`${collection.title} book cover`" decoding="async" fetchpriority="high" width="420" height="560" class="aspect-[3/4] w-full object-cover">
           </div>
           <div>
             <RouterLink :to="{ name: 'materials', query: { edition: collection.standard } }" class="inline-flex items-center gap-2 text-xs font-extrabold text-black/45 hover:text-cinnabar">

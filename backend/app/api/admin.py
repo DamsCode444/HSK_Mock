@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import AdminUser, DbSession
+from app.core.audit import audit_event
 from app.core.config import settings
 from app.models import Attempt, HskTest, User
 from app.schemas.admin import (
@@ -176,7 +177,7 @@ def list_admin_users(
 
 @router.post("/import", response_model=AdminImportResponse)
 def import_bundles(
-    payload: AdminImportRequest, db: DbSession, _: AdminUser
+    payload: AdminImportRequest, db: DbSession, admin: AdminUser
 ) -> AdminImportResponse:
     # Imported lazily so ordinary API startup is independent of PDF tooling.
     from app.services.importer import import_tests
@@ -190,18 +191,30 @@ def import_bundles(
         )
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    audit_event(
+        "admin_bundle_imported",
+        admin_user_id=admin.id,
+        test_code=payload.test_code or "selection",
+        result_count=len(results),
+    )
     return AdminImportResponse(results=results)
 
 
 @router.post("/import/upload", response_model=AdminImportResponse)
 async def upload_bundle(
     db: DbSession,
-    _: AdminUser,
+    admin: AdminUser,
     file: UploadFile = File(...),
 ) -> AdminImportResponse:
     filename = Path(file.filename or "bundle.zip").name
     if Path(filename).suffix.lower() != ".zip":
         raise HTTPException(status_code=415, detail="Upload must be a ZIP archive")
+    if file.content_type and file.content_type.lower() not in {
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/octet-stream",
+    }:
+        raise HTTPException(status_code=415, detail="Upload content type must be a ZIP archive")
 
     from app.services.importer import (
         discover_bundles,
@@ -243,6 +256,12 @@ async def upload_bundle(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         await file.close()
+    audit_event(
+        "admin_bundle_uploaded",
+        admin_user_id=admin.id,
+        result_count=len(results),
+        upload_bytes=total,
+    )
     return AdminImportResponse(results=results)
 
 
@@ -251,7 +270,7 @@ def update_test(
     test_id: int,
     payload: AdminTestPatch,
     db: DbSession,
-    _: AdminUser,
+    admin: AdminUser,
 ) -> AdminTestOut:
     test = db.get(HskTest, test_id)
     if test is None:
@@ -278,6 +297,12 @@ def update_test(
         setattr(test, field, value)
     db.commit()
     db.refresh(test)
+    audit_event(
+        "admin_test_updated",
+        admin_user_id=admin.id,
+        test_id=test.id,
+        changed_fields=",".join(sorted(values)),
+    )
     question_count = db.scalar(
         select(func.count()).select_from(HskTest).join(HskTest.questions).where(HskTest.id == test.id)
     ) or 0
@@ -288,13 +313,14 @@ def update_test(
 
 
 @router.delete("/tests/{test_id}", response_model=AdminTestOut)
-def archive_test(test_id: int, db: DbSession, _: AdminUser) -> AdminTestOut:
+def archive_test(test_id: int, db: DbSession, admin: AdminUser) -> AdminTestOut:
     test = db.get(HskTest, test_id)
     if test is None:
         raise HTTPException(status_code=404, detail="Test not found")
     test.status = "archived"
     db.commit()
     db.refresh(test)
+    audit_event("admin_test_archived", admin_user_id=admin.id, test_id=test.id)
     question_count = db.scalar(
         select(func.count()).select_from(HskTest).join(HskTest.questions).where(HskTest.id == test.id)
     ) or 0
@@ -319,6 +345,12 @@ def update_user(
     user.is_active = payload.is_active
     db.commit()
     db.refresh(user)
+    audit_event(
+        "admin_user_status_changed",
+        admin_user_id=admin.id,
+        target_user_id=user.id,
+        is_active=user.is_active,
+    )
     attempt_count = db.scalar(
         select(func.count(Attempt.id)).where(Attempt.user_id == user.id)
     ) or 0

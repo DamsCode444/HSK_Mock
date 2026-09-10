@@ -56,6 +56,8 @@ function answered(value) {
               saveStates[row.question.id] === 'error' ? '!border-amber-400' : '',
             ]"
             :aria-label="`Go to question ${row.question.number}`"
+            :aria-current="row.index === currentIndex ? 'step' : undefined"
+            :title="saveStates[row.question.id] === 'error' ? `Question ${row.question.number}: answer not synced` : answered(answers[row.question.id]) ? `Question ${row.question.number}: answered` : `Question ${row.question.number}: open`"
             @click="$emit('select', row.index)"
           >
             {{ row.question.number }}
@@ -72,3 +74,7 @@ function answered(value) {
     </div>
   </aside>
 </template>
+
+<style scoped>
+button:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+</style>

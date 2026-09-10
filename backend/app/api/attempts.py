@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.api.attempt_access import get_user_attempt
 from app.api.dependencies import CurrentUser, DbSession
 from app.api.serializers import attempt_out
+from app.core.audit import audit_event
 from app.core.time import utcnow
 from app.models import Answer, AttemptAudioPlay
 from app.schemas.exams import (
@@ -29,6 +30,12 @@ def _reject_unavailable_attempt(attempt, db: DbSession) -> None:
     if now >= attempt.deadline:
         grade_attempt(attempt, now=now)
         db.commit()
+        audit_event(
+            "attempt_expired",
+            user_id=attempt.user_id,
+            attempt_id=attempt.id,
+            test_id=attempt.test_id,
+        )
         raise HTTPException(
             status_code=409,
             detail="Attempt deadline has passed; the attempt was submitted automatically",
@@ -164,6 +171,12 @@ def record_audio_play(
         )
         db.add(audio_play)
     if audio_play.play_count >= play_limit:
+        audit_event(
+            "exam_audio_limit_rejected",
+            user_id=current_user.id,
+            attempt_id=attempt.id,
+            question_id=tracking_question_id,
+        )
         raise HTTPException(status_code=409, detail="Audio play limit reached")
 
     audio_play.play_count += 1
@@ -185,6 +198,13 @@ def submit_attempt(
     if attempt.status == "in_progress":
         grade_attempt(attempt, now=utcnow())
         db.commit()
+        audit_event(
+            "attempt_submitted",
+            user_id=current_user.id,
+            attempt_id=attempt.id,
+            test_id=attempt.test_id,
+            score=attempt.score,
+        )
     elif attempt.status != "submitted":
         raise HTTPException(status_code=409, detail="Attempt cannot be submitted")
     return _submission_out(attempt)

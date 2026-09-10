@@ -4,10 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f4ed" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <!--
+      Static-site CSP baseline. Render should also send the stricter, host-specific
+      CSP documented in docs/SECURITY_CHECKLIST.md as an HTTP response header.
+      HTTPS is intentionally permitted here because Clerk and private B2 media
+      use deployment-specific hosts.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; media-src 'self' blob: https:; frame-src 'self' blob: https:; worker-src 'self' blob:"
+    />
     <meta
       name="description"
       content="Realistic HSK 1–6 mock exams with timed practice, automatic scoring, and detailed review."
     />
+
+    <!-- Website favicon -->
+    <link rel="icon" type="image/png" href="/favicon.png" />
+
+    <!-- For Apple devices -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>墨考 Mòkǎo · HSK Mock Tests</title>
   </head>
   <body>

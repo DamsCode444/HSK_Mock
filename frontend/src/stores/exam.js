@@ -20,6 +20,7 @@ export const useExamStore = defineStore('exam', () => {
   const loading = ref(false)
   const submitting = ref(false)
   const loadError = ref('')
+  const lastSavedAt = ref(null)
   const chains = new Map()
   const versions = new Map()
 
@@ -27,6 +28,18 @@ export const useExamStore = defineStore('exam', () => {
   const answeredCount = computed(() =>
     questions.value.filter((question) => hasAnswer(answers[question.id])).length,
   )
+  const pendingSaveCount = computed(() =>
+    Object.values(saveStates).filter((state) => state === 'saving' || state === 'queued').length,
+  )
+  const failedSaveCount = computed(() =>
+    Object.values(saveStates).filter((state) => state === 'error').length,
+  )
+  const saveSummary = computed(() => {
+    if (failedSaveCount.value) return 'error'
+    if (pendingSaveCount.value) return 'saving'
+    if (lastSavedAt.value) return 'saved'
+    return 'idle'
+  })
 
   function hasAnswer(value) {
     if (Array.isArray(value)) return value.length > 0
@@ -38,6 +51,7 @@ export const useExamStore = defineStore('exam', () => {
     questions.value = []
     attempt.value = null
     loadError.value = ''
+    lastSavedAt.value = null
     chains.clear()
     versions.clear()
     Object.keys(answers).forEach((key) => delete answers[key])
@@ -48,20 +62,67 @@ export const useExamStore = defineStore('exam', () => {
     return `${DRAFT_PREFIX}${id}`
   }
 
+  function readStorage(key) {
+    try {
+      return localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  }
+
+  function writeStorage(key, value) {
+    try {
+      localStorage.setItem(key, value)
+    } catch {
+      // The API remains authoritative when storage is unavailable or full.
+    }
+  }
+
+  function removeStorage(key) {
+    try {
+      localStorage.removeItem(key)
+    } catch {
+      // Storage can be unavailable in hardened/private browsing contexts.
+    }
+  }
+
   function persistDraft() {
     if (!attemptId.value) return
-    localStorage.setItem(draftKey(), JSON.stringify({ ...answers }))
+    const validIds = new Set(questions.value.map((question) => String(question.id)))
+    const draft = Object.fromEntries(
+      Object.entries(answers).filter(([id]) => validIds.has(String(id))),
+    )
+    writeStorage(draftKey(), JSON.stringify(draft))
   }
 
   function mergeAnswers(serverAnswers) {
+    const validIds = new Set(questions.value.map((question) => String(question.id)))
+    const server = answerMap(serverAnswers)
     let local = {}
     try {
-      local = JSON.parse(localStorage.getItem(draftKey(attempt.value?.id)) || '{}')
+      const parsed = JSON.parse(readStorage(draftKey(attempt.value?.id)) || '{}')
+      local = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
     } catch {
       local = {}
     }
-    // The local draft may contain the final keystrokes made just before a refresh.
-    Object.assign(answers, answerMap(serverAnswers), local)
+
+    const pendingDrafts = []
+    for (const [id, value] of Object.entries(server)) {
+      if (!validIds.has(String(id))) continue
+      answers[id] = value
+      saveStates[id] = 'saved'
+    }
+    // A local draft can contain final keystrokes made immediately before a refresh.
+    // Only known question IDs are restored, then any server difference is re-saved.
+    for (const [id, value] of Object.entries(local)) {
+      if (!validIds.has(String(id))) continue
+      answers[id] = value
+      if (JSON.stringify(server[id]) !== JSON.stringify(value)) {
+        saveStates[id] = 'queued'
+        pendingDrafts.push([id, value])
+      }
+    }
+    return pendingDrafts
   }
 
   function mergeAudioUsage(audioPlays = []) {
@@ -74,29 +135,35 @@ export const useExamStore = defineStore('exam', () => {
 
   async function recoverOrStart(testId) {
     const storageKey = `${ACTIVE_ATTEMPT_PREFIX}${testId}`
-    const savedId = localStorage.getItem(storageKey)
+    const savedId = readStorage(storageKey)
     if (savedId) {
       try {
         const { data } = await http.get(`/attempts/${savedId}`)
         const recovered = normalizeAttempt(data)
         if (['in_progress', 'active', 'started'].includes(recovered.status)) {
           attempt.value = recovered
-          mergeAnswers(recovered.answers)
+          const pendingDrafts = mergeAnswers(recovered.answers)
           mergeAudioUsage(recovered.audioPlays)
+          await Promise.allSettled(
+            pendingDrafts.map(([questionId, value]) => saveAnswer(questionId, value)),
+          )
           return recovered
         }
       } catch {
         // A missing, expired, or submitted attempt is replaced below.
       }
-      localStorage.removeItem(storageKey)
+      removeStorage(storageKey)
     }
 
     const { data } = await http.post(`/tests/${testId}/start`)
     attempt.value = normalizeAttempt(data)
     if (!attempt.value.id) throw new Error('The server did not return an attempt ID.')
-    localStorage.setItem(storageKey, String(attempt.value.id))
-    mergeAnswers(attempt.value.answers)
+    writeStorage(storageKey, String(attempt.value.id))
+    const pendingDrafts = mergeAnswers(attempt.value.answers)
     mergeAudioUsage(attempt.value.audioPlays)
+    await Promise.allSettled(
+      pendingDrafts.map(([questionId, value]) => saveAnswer(questionId, value)),
+    )
     return attempt.value
   }
 
@@ -132,6 +199,7 @@ export const useExamStore = defineStore('exam', () => {
 
   function saveAnswer(questionId, userAnswer) {
     if (!attemptId.value || questionId === undefined || questionId === null) return Promise.resolve()
+    const currentAttemptId = attemptId.value
     answers[questionId] = userAnswer
     saveStates[questionId] = 'saving'
     persistDraft()
@@ -142,15 +210,20 @@ export const useExamStore = defineStore('exam', () => {
     const request = previous
       .catch(() => undefined)
       .then(() =>
-        http.put(`/attempts/${attemptId.value}/answers/${questionId}`, {
+        http.put(`/attempts/${currentAttemptId}/answers/${questionId}`, {
           user_answer: userAnswer,
         }),
       )
-      .then(() => {
-        if (versions.get(questionId) === version) saveStates[questionId] = 'saved'
+      .then(({ data }) => {
+        if (attemptId.value === currentAttemptId && versions.get(questionId) === version) {
+          saveStates[questionId] = 'saved'
+          lastSavedAt.value = data?.saved_at || new Date().toISOString()
+        }
       })
       .catch((error) => {
-        if (versions.get(questionId) === version) saveStates[questionId] = 'error'
+        if (attemptId.value === currentAttemptId && versions.get(questionId) === version) {
+          saveStates[questionId] = 'error'
+        }
         throw error
       })
       .finally(() => {
@@ -169,21 +242,28 @@ export const useExamStore = defineStore('exam', () => {
     return saveAnswer(questionId, answers[questionId])
   }
 
-  async function flushAnswers() {
-    await Promise.allSettled([...chains.values()])
-    const failed = Object.values(saveStates).some((state) => state === 'error')
-    if (failed) throw new Error('One or more answers have not reached the server.')
+  async function retryFailedAnswers() {
+    const failedIds = Object.entries(saveStates)
+      .filter(([, state]) => state === 'error')
+      .map(([id]) => id)
+    await Promise.all(failedIds.map((id) => retryAnswer(id)))
   }
 
-  async function submitExam() {
+  async function flushAnswers({ allowErrors = false } = {}) {
+    await Promise.allSettled([...chains.values()])
+    const failed = Object.values(saveStates).some((state) => state === 'error')
+    if (failed && !allowErrors) throw new Error('One or more answers have not reached the server.')
+  }
+
+  async function submitExam({ allowUnsaved = false } = {}) {
     if (!attemptId.value || submitting.value) return null
     submitting.value = true
     try {
-      await flushAnswers()
+      await flushAnswers({ allowErrors: allowUnsaved })
       const currentAttemptId = attemptId.value
       const { data } = await http.post(`/attempts/${currentAttemptId}/submit`)
-      if (test.value?.id) localStorage.removeItem(`${ACTIVE_ATTEMPT_PREFIX}${test.value.id}`)
-      localStorage.removeItem(draftKey(currentAttemptId))
+      if (test.value?.id) removeStorage(`${ACTIVE_ATTEMPT_PREFIX}${test.value.id}`)
+      removeStorage(draftKey(currentAttemptId))
       attempt.value = { ...attempt.value, status: 'submitted' }
       return data
     } finally {
@@ -205,14 +285,19 @@ export const useExamStore = defineStore('exam', () => {
     loading,
     submitting,
     loadError,
+    lastSavedAt,
     attemptId,
     answeredCount,
+    pendingSaveCount,
+    failedSaveCount,
+    saveSummary,
     hasAnswer,
     loadExam,
     syncAttempt,
     saveAnswer,
     stageAnswer,
     retryAnswer,
+    retryFailedAnswers,
     flushAnswers,
     submitExam,
     updateAudioUsage,
